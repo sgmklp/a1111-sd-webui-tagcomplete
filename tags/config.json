@@ -9,7 +9,6 @@
 	"replaceUnderscores": true,
 	"escapeParentheses": true,
 	"useWildcards": true,
-	"useEmbeddings": true,
 	"colors": {
 		"danbooru": {
 			"0": ["lightblue", "dodgerblue"],

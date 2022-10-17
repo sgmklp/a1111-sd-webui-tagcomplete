@@ -1,0 +1,17 @@
+// Put the file names of wildcard files you want to use here. Needed so that the script can access them.
+// The default ones are the following, you can uncomment them if you have them
+//adjective
+//artist
+//genre
+//site
+//style
+图片属性
+人物表情
+人物形态
+服装风格
+颜文字
+人物类型
+人物姿势动作状态
+物品和背景
+服装类物品
+和谐类
