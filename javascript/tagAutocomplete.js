@@ -399,6 +399,21 @@ function autocomplete(textArea, prompt, fixedTag = null) {
 
     tagword = tagword.toLowerCase();
 
+    if (acConfig.translation.searchByTranslation) {
+        results = allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)); // check have translation
+        // if search by [a~z],first list the translations, and then search English if it is not enough
+        // if only show translation,it is unnecessary to list English results
+        if (!acConfig.translation.onlyShowTranslation) {
+            results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
+        }
+    } else {
+        results = allTags.filter(x => x[0].toLowerCase().includes(tagword));
+    }
+    // it's good to show all results
+    if (!acConfig.showAllResults) {
+        results = results.slice(0, acConfig.maxResults);
+    }
+
     if (acConfig.useWildcards && [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)].length > 0) {
         // Show wildcards from a file with that name
         wcMatch = [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)]
@@ -410,11 +425,11 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         // Show available wildcard files
         let tempResults = [];
         if (tagword !== "__") {
-            tempResults = wildcardFiles.filter(x => x.toLowerCase().includes(tagword.replace("__", ""))) // Filter by tagword
+            tempResults = wildcardFiles.filter(x => x.toLowerCase().includes(tagword.replace("__", ""))); // Filter by tagword
         } else {
             tempResults = wildcardFiles;
         }
-        results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]); // Mark as wildcard
+        results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]).concat(results); // Mark as wildcard
     } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
         // Show embeddings
         let tempResults = [];
@@ -423,24 +438,7 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         } else {
             tempResults = embeddings;
         }
-        // Since some tags are kaomoji, we have to still get the normal results first.
-        genericResults = allTags.filter(x => x[0].toLowerCase().includes(tagword)).slice(0, acConfig.maxResults);
-        results = genericResults.concat(tempResults.map(x => ["Embeddings: " + x.trim(), "embedding"])); // Mark as embedding
-    } else {
-        if (acConfig.translation.searchByTranslation) {
-            results = allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)); // check have translation
-            // if search by [a~z],first list the translations, and then search English if it is not enough
-            // if only show translation,it is unnecessary to list English results
-            if (!acConfig.translation.onlyShowTranslation) {
-                results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
-            }
-        } else {
-            results = allTags.filter(x => x[0].toLowerCase().includes(tagword));
-        }
-        // it's good to show all results
-        if (!acConfig.showAllResults) {
-            results = results.slice(0, acConfig.maxResults);
-        }
+        results = tempResults.map(x => ["Embeddings: " + x.trim(), "embedding"]).concat(results); // Mark as embedding
     }
 
     // Guard for empty results
