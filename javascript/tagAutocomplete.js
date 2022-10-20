@@ -219,7 +219,7 @@ function hideResults(textArea) {
     selectedTag = null;
 }
 
-function searchResults(tagList) {
+function searchResults(tagList, tagword) {
     if (!tagList || tagList.length === 0) {
         return null;
     }
@@ -227,9 +227,9 @@ function searchResults(tagList) {
     let resultList = [];
     if (acConfig.translation.searchByTranslation) {
         if (!acConfig.translation.onlyShowTranslation) {
-            resultList = tagList.filter(x => x[0].toLowerCase().includes(tagword) && !resultList.includes(x)).concat(resultList);
+            resultList = tagList.filter(x => x[0].toLowerCase().includes(tagword)).concat(resultList);
         }
-        resultList = tagList.filter(x => x[2] && x[2].toLowerCase().includes(tagword)).concat(resultList); // check have translation
+        resultList = tagList.filter(x => x[2] && x[2].toLowerCase().includes(tagword) && !resultList.includes(x)).concat(resultList); // check have translation
     } else {
         resultList = tagList.filter(x => x[0].toLowerCase().includes(tagword)).concat(resultList);
     }
@@ -376,10 +376,12 @@ function updateSelectionStyle(textArea, newIndex, oldIndex) {
 var wildcardFiles = [];
 var wildcards = {};
 var embeddings = [];
+var classlist = [];
 var allTags = [];
 var results = [];
 var tagword = "";
 var resultCount = 0;
+
 function autocomplete(textArea, prompt, fixedTag = null) {
     // Return if the function is deactivated in the UI
     if (!acActive) return;
@@ -416,17 +418,15 @@ function autocomplete(textArea, prompt, fixedTag = null) {
 
     tagword = tagword.toLowerCase();
 
-    results = searchResults(allTags);
+    results = searchResults(allTags, tagword);
 
-    if (acConfig.useWildcards) {
+    let matchGroup = null;
+    if (acConfig.useWildcards && (matchGroup = tagword.match(/__([^,_ ]+)__([^, ]*)/)) && matchGroup.length !== 0) {
         // Show wildcards from a file with that name
-        let wcMatch = tagword.match(/__([^,_ ]+)__([^, ]*)/);
-        if (wcMatch && wcMatch.length !== 0) {
-            let wcFile = wcMatch[1];
-            let wcWord = wcMatch[2];
-            results = wildcards[wcFile].filter(x => (wcWord !== null) ? x.toLowerCase().includes(wcWord) : x) // Filter by tagword
-                .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
-        }
+        let wcFile = matchGroup[1];
+        let wcWord = matchGroup[2];
+        results = wildcards[wcFile].filter(x => (wcWord !== null) ? x.toLowerCase().includes(wcWord) : x) // Filter by tagword
+            .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
     } else if (acConfig.useWildcards && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
         // Show available wildcard files
         let tempResults = [];
@@ -436,29 +436,6 @@ function autocomplete(textArea, prompt, fixedTag = null) {
             tempResults = wildcardFiles;
         }
         results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]).concat(results); // Mark as wildcard
-    } else if (acConfig.useClass) {
-        let classMatch = tagword.matchAll(/\b>([^, ]+)<([^, ]*)\b/g);
-        if (classMatch && classMatch.length !== 0) {
-            let className = classMatch[1];
-            let calssWord = classMatch[2];
-            let tagList = allTags.filter(x => x[1] === className);
-            if (wcWord) {
-                results = searchResults(tagList).concat(results);
-            } else {
-                results = tagList.concat(results);
-            }
-            //     && ((wcWord !== null) ? x[0].toLowerCase().includes(calssWord) : x))
-            // .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
-        }
-    } else if (acConfig.useClass && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
-        // Show available wildcard files
-        let tempResults = [];
-        if (tagword !== "__") {
-            tempResults = wildcardFiles.filter(x => x.toLowerCase().includes(tagword.replace("__", "")));
-        } else {
-            tempResults = wildcardFiles;
-        }
-        results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]).concat(results);
     } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
         // Show embeddings
         let tempResults = [];
