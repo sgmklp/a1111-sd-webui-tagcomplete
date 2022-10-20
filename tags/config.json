@@ -12,6 +12,7 @@
 	"escapeParentheses": true,
 	"useWildcards": true,
 	"useEmbeddings": true,
+	"useClass": true,
 	"translation": {
 		"searchByTranslation": true,
 		"onlyShowTranslation": false

@@ -219,6 +219,22 @@ function hideResults(textArea) {
     selectedTag = null;
 }
 
+function searchResults(list) {
+    if (!list || list.length === 0) {
+        return;
+    }
+    if (acConfig.translation.searchByTranslation) {
+        results = allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)); // check have translation
+        // if search by [a~z],first list the translations, and then search English if it is not enough
+        // if only show translation,it is unnecessary to list English results
+        if (!acConfig.translation.onlyShowTranslation) {
+            results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
+        }
+    } else {
+        results = allTags.filter(x => x[0].toLowerCase().includes(tagword));
+    }
+}
+
 function escapeRegExp(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
@@ -280,7 +296,7 @@ function insertTextAtCursor(textArea, result) {
     }
 }
 
-function addResultsToList(textArea, results, tagword, resetList) {
+function addResultsToList(textArea, results, resetList) {
     let textAreaId = getTextAreaIdentifier(textArea);
     let resultDiv = gradioApp().querySelector('.autocompleteResults' + textAreaId);
     let resultsList = resultDiv.querySelector('ul');
@@ -305,7 +321,7 @@ function addResultsToList(textArea, results, tagword, resetList) {
         let li = document.createElement("li");
 
         //support only show the translation to result
-        if (result[2]) {
+        if (result[2] && result.length !== 0) {
             li.textContent = result[2];
             if (!acConfig.translation.onlyShowTranslation) {
                 li.textContent += " >> " + resultTag;
@@ -339,7 +355,7 @@ function updateSelectionStyle(textArea, newIndex, oldIndex) {
     let resultsList = resultDiv.querySelector('ul');
     let items = resultsList.getElementsByTagName('li');
 
-    if (oldIndex != null) {
+    if (oldIndex !== null) {
         items[oldIndex].classList.remove('selected');
     }
 
@@ -367,12 +383,12 @@ function autocomplete(textArea, prompt, fixedTag = null) {
     if (!acActive) return;
 
     // Guard for empty prompt
-    if (prompt.length === 0) {
+    if (!prompt) {
         hideResults(textArea);
         return;
     }
 
-    if (fixedTag === null) {
+    if (fixedTag) {
 
         let cursorPos = textArea.selectionEnd;
         let editStart = findEditStart(prompt, cursorPos);
@@ -386,13 +402,12 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         }
 
         // Guard for empty tagword
-        if (tagword === null || tagword.length === 0) {
+        if (!tagword) {
             hideResults(textArea);
             return;
         }
 
         acConfig.replaceUnderscores ? tagword.replaceAll(" ", "_") : tagword
-
     } else {
         tagword = fixedTag;
     }
@@ -414,13 +429,15 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         results = results.slice(0, acConfig.maxResults);
     }
 
-    if (acConfig.useWildcards && [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)].length > 0) {
+    if (acConfig.useWildcards) {
         // Show wildcards from a file with that name
-        wcMatch = [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)]
-        let wcFile = wcMatch[0][1];
-        let wcWord = wcMatch[0][2];
-        results = wildcards[wcFile].filter(x => (wcWord !== null) ? x.toLowerCase().includes(wcWord) : x) // Filter by tagword
+        let wcMatch = tagword.match(/\b__([^,_ ]+)__([^, ]*)\b/);
+        if (wcMatch && wcMatch.length !== 0) {
+            let wcFile = wcMatch[1];
+            let wcWord = wcMatch[2];
+            results = wildcards[wcFile].filter(x => (wcWord !== null) ? x.toLowerCase().includes(wcWord) : x) // Filter by tagword
             .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
+        }
     } else if (acConfig.useWildcards && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
         // Show available wildcard files
         let tempResults = [];
@@ -430,6 +447,24 @@ function autocomplete(textArea, prompt, fixedTag = null) {
             tempResults = wildcardFiles;
         }
         results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]).concat(results); // Mark as wildcard
+    } else if (acConfig.useClass) {
+        let classMatch = tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g);
+        if (classMatch && classMatch.length !== 0) {
+            let className = classMatch[1];
+            let calssWord = classMatch[2];
+            results = allTags.filter(x => (x[1] === className)
+                && ((wcWord !== null) ? x[0].toLowerCase().includes(calssWord) : x))
+            .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
+        }
+    } else if (acConfig.useClass && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
+        // Show available wildcard files
+        let tempResults = [];
+        if (tagword !== "__") {
+            tempResults = wildcardFiles.filter(x => x.toLowerCase().includes(tagword.replace("__", "")));
+        } else {
+            tempResults = wildcardFiles;
+        }
+        results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]).concat(results);
     } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
         // Show embeddings
         let tempResults = [];
@@ -442,13 +477,13 @@ function autocomplete(textArea, prompt, fixedTag = null) {
     }
 
     // Guard for empty results
-    if (!results.length) {
+    if (!results || results.length === 0) {
         hideResults(textArea);
         return;
     }
 
     showResults(textArea);
-    addResultsToList(textArea, results, tagword, true);
+    addResultsToList(textArea, results, true);
 }
 
 function navigateInList(textArea, event) {
@@ -496,7 +531,7 @@ function navigateInList(textArea, event) {
     }
     if (selectedTag == resultCount - 1
         && (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-        addResultsToList(textArea, results, tagword, false);
+        addResultsToList(textArea, results, false);
     }
     // Update highlighting
     if (selectedTag !== null)
@@ -510,7 +545,7 @@ function navigateInList(textArea, event) {
 var styleAdded = false;
 onUiUpdate(function () {
     // Load config
-    if (acConfig === null) {
+    if (!acConfig) {
         try {
             acConfig = JSON.parse(readFile("file/tags/config.json"));
             if (acConfig.translation.onlyShowTranslation) {
@@ -522,7 +557,7 @@ onUiUpdate(function () {
         }
     }
     // Load main tags and translations
-    if (allTags.length === 0) {
+    if (!allTags || allTags.length === 0) {
         try {
             allTags = loadCSV(`file/tags/${acConfig.tagFile}`);
         } catch (e) {
@@ -558,7 +593,7 @@ onUiUpdate(function () {
         }
     }
     // Load wildcards
-    if (wildcardFiles.length === 0 && acConfig.useWildcards) {
+    if (acConfig.useWildcards && (!wildcardFiles || wildcardFiles.length === 0)) {
         try {
             wildcardFiles = readFile("file/tags/temp/wc.txt").split("\n")
                 .filter(x => x.trim().length > 0) // Remove empty lines
@@ -577,7 +612,7 @@ onUiUpdate(function () {
         }
     }
     // Load embeddings
-    if (embeddings.length === 0 && acConfig.useEmbeddings) {
+    if (acConfig.useEmbeddings && (!embeddings || embeddings.length === 0)) {
         try {
             embeddings = readFile("file/tags/temp/emb.txt").split("\n")
                 .filter(x => x.trim().length > 0) // Remove empty lines
