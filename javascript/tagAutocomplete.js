@@ -219,20 +219,22 @@ function hideResults(textArea) {
     selectedTag = null;
 }
 
-function searchResults(list) {
-    if (!list || list.length === 0) {
-        return;
+function searchResults(tagList) {
+    if (!tagList || tagList.length === 0) {
+        return null;
     }
+
+    let resultList = [];
     if (acConfig.translation.searchByTranslation) {
-        results = allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)); // check have translation
-        // if search by [a~z],first list the translations, and then search English if it is not enough
-        // if only show translation,it is unnecessary to list English results
         if (!acConfig.translation.onlyShowTranslation) {
-            results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
+            resultList = tagList.filter(x => x[0].toLowerCase().includes(tagword) && !resultList.includes(x)).concat(resultList);
         }
+        resultList = tagList.filter(x => x[2] && x[2].toLowerCase().includes(tagword)).concat(resultList); // check have translation
     } else {
-        results = allTags.filter(x => x[0].toLowerCase().includes(tagword));
+        resultList = tagList.filter(x => x[0].toLowerCase().includes(tagword)).concat(resultList);
     }
+
+    return resultList;
 }
 
 function escapeRegExp(string) {
@@ -388,7 +390,7 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         return;
     }
 
-    if (fixedTag) {
+    if (!fixedTag) {
 
         let cursorPos = textArea.selectionEnd;
         let editStart = findEditStart(prompt, cursorPos);
@@ -414,29 +416,16 @@ function autocomplete(textArea, prompt, fixedTag = null) {
 
     tagword = tagword.toLowerCase();
 
-    if (acConfig.translation.searchByTranslation) {
-        results = allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)); // check have translation
-        // if search by [a~z],first list the translations, and then search English if it is not enough
-        // if only show translation,it is unnecessary to list English results
-        if (!acConfig.translation.onlyShowTranslation) {
-            results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
-        }
-    } else {
-        results = allTags.filter(x => x[0].toLowerCase().includes(tagword));
-    }
-    // it's good to show all results
-    if (!acConfig.showAllResults) {
-        results = results.slice(0, acConfig.maxResults);
-    }
+    results = searchResults(allTags);
 
     if (acConfig.useWildcards) {
         // Show wildcards from a file with that name
-        let wcMatch = tagword.match(/\b__([^,_ ]+)__([^, ]*)\b/);
+        let wcMatch = tagword.match(/__([^,_ ]+)__([^, ]*)/);
         if (wcMatch && wcMatch.length !== 0) {
             let wcFile = wcMatch[1];
             let wcWord = wcMatch[2];
             results = wildcards[wcFile].filter(x => (wcWord !== null) ? x.toLowerCase().includes(wcWord) : x) // Filter by tagword
-            .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
+                .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
         }
     } else if (acConfig.useWildcards && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
         // Show available wildcard files
@@ -448,13 +437,18 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         }
         results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]).concat(results); // Mark as wildcard
     } else if (acConfig.useClass) {
-        let classMatch = tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g);
+        let classMatch = tagword.matchAll(/\b>([^, ]+)<([^, ]*)\b/g);
         if (classMatch && classMatch.length !== 0) {
             let className = classMatch[1];
             let calssWord = classMatch[2];
-            results = allTags.filter(x => (x[1] === className)
-                && ((wcWord !== null) ? x[0].toLowerCase().includes(calssWord) : x))
-            .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
+            let tagList = allTags.filter(x => x[1] === className);
+            if (wcWord) {
+                results = searchResults(tagList).concat(results);
+            } else {
+                results = tagList.concat(results);
+            }
+            //     && ((wcWord !== null) ? x[0].toLowerCase().includes(calssWord) : x))
+            // .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
         }
     } else if (acConfig.useClass && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
         // Show available wildcard files
@@ -497,7 +491,7 @@ function navigateInList(textArea, event) {
     // Return if ctrl key is pressed to not interfere with weight editing shortcut
     if (event.ctrlKey || event.altKey) return;
 
-    oldSelectedTag = selectedTag;
+    let oldSelectedTag = selectedTag;
 
     switch (event.key) {
         case "ArrowUp":
