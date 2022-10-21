@@ -12,12 +12,13 @@
 	"escapeParentheses": true,
 	"useWildcards": true,
 	"useEmbeddings": true,
+	"useClass": true,
 	"translation": {
 		"searchByTranslation": true,
 		"onlyShowTranslation": false
 	},
 	"extra": {
-		"extraFile": "",
+		"extraFile": "tags-zh-full.csv",
 		"onlyTranslationExtraFile": false
 	},
 	"colors": {

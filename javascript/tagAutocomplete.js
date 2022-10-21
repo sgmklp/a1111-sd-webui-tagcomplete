@@ -236,6 +236,8 @@ function insertTextAtCursor(textArea, result) {
         sanitizedText = "__" + text.replace("Wildcards: ", "") + "__";
     } else if (tagType === "wildcardTag") {
         sanitizedText = text.replace(/^.*?: /g, "");
+    } else if (tagType === "className") {
+        sanitizedText = `>${text.replace("Class: ", "")}<`;
     } else if (tagType === "embedding") {
         sanitizedText = `<${text.replace(/^.*?: /g, "")}>`;
     } else {
@@ -270,7 +272,7 @@ function insertTextAtCursor(textArea, result) {
     textArea.dispatchEvent(new Event("input", { bubbles: true }));
 
     // Hide results after inserting
-    if (tagType === "wildcardFile") {
+    if (tagType === "wildcardFile" || tagType === "className") {
         // If it's a wildcard, we want to keep the results open so the user can select another wildcard
         hideBlocked = true;
         autocomplete(textArea, prompt, sanitizedText);
@@ -315,7 +317,7 @@ function addResultsToList(textArea, results, resetList) {
         }
 
         // Wildcards & Embeds have no tag type
-        if (!result[1].startsWith("wildcard") && result[1] !== "embedding") {
+        if (classNameList && classNameList.includes(result[1])) {
             // Set the color of the tag
             let tagType = result[1];
             let colorGroup = tagColors[tagFileName];
@@ -358,6 +360,7 @@ function updateSelectionStyle(textArea, newIndex, oldIndex) {
 var wildcardFiles = [];
 var wildcards = {};
 var embeddings = [];
+var classNameList = [];
 var allTags = [];
 var results = [];
 var tagword = "";
@@ -399,48 +402,68 @@ function autocomplete(textArea, prompt, fixedTag = null) {
 
     tagword = tagword.toLowerCase();
 
-    if (acConfig.useWildcards && [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)].length > 0) {
-        // Show wildcards from a file with that name
-        wcMatch = [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)]
-        let wcFile = wcMatch[0][1];
-        let wcWord = wcMatch[0][2];
-        results = wildcards[wcFile].filter(x => (wcWord !== null) ? x.toLowerCase().includes(wcWord) : x) // Filter by tagword
-            .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
-    } else if (acConfig.useWildcards && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
-        // Show available wildcard files
-        let tempResults = [];
+    results = [];
+    let matchGruop = null;
+    if (acConfig.useWildcards && (matchGruop = tagword.match(/\b__([^,_ ]+)__([^, ]*)\b/)) && matchGruop.length !== 0) {
+        let wcFile = matchGruop[1];
+        let wcWord = matchGruop[2];
+        if (wcWord) {
+            results = wildcards[wcFile].filter(x => x.toLowerCase().includes(wcWord)).map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
+        } else {
+            results = wildcards[wcFile].map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
+        }
+    } else if (acConfig.useWildcards && ((tagword.startsWith("__") && !tagword.endsWith("__")) || tagword === "__")) {
         if (tagword !== "__") {
-            tempResults = wildcardFiles.filter(x => x.toLowerCase().includes(tagword.replace("__", ""))) // Filter by tagword
+            results = wildcardFiles.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]);
         } else {
-            tempResults = wildcardFiles;
+            let wcFile = tagword.replace("__", "")
+            results = wildcardFiles.filter(x => x.toLowerCase().includes(wcFile)).map(x => ["Wildcards: " + x.trim(), "wildcardFile"])
         }
-        results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]); // Mark as wildcard
-    } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
-        // Show embeddings
-        let tempResults = [];
-        if (tagword !== "<") {
-            tempResults = embeddings.filter(x => x.toLowerCase().includes(tagword.replace("<", ""))) // Filter by tagword
-        } else {
-            tempResults = embeddings;
-        }
-        // Since some tags are kaomoji, we have to still get the normal results first.
-        genericResults = allTags.filter(x => x[0].toLowerCase().includes(tagword)).slice(0, acConfig.maxResults);
-        results = genericResults.concat(tempResults.map(x => ["Embeddings: " + x.trim(), "embedding"])); // Mark as embedding
-    } else {
-        if (acConfig.translation.searchByTranslation) {
-            results = allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)); // check have translation
-            // if search by [a~z],first list the translations, and then search English if it is not enough
-            // if only show translation,it is unnecessary to list English results
-            if (!acConfig.translation.onlyShowTranslation) {
-                results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
+    } else if (acConfig.useClass && (matchGruop = tagword.match(/>(.+)<(.*)/)) && matchGruop.length !== 0) {
+        let className = matchGruop[1];
+        let classWord = matchGruop[2];
+        let classTagList = allTags.filter(x => x[1] && x[1] === className);
+        if (classWord) {
+            if (acConfig.translation.searchByTranslation) {
+                results = classTagList.filter(x => x[2] && x[2].toLowerCase().includes(classWord) && !results.includes(x));
+                if (!acConfig.translation.onlyShowTranslation) {
+                    results = results.concat(classTagList.filter(x => x[0].toLowerCase().includes(classWord) && !results.includes(x)));
+                }
+            } else {
+                results = classTagList.filter(x => x[0].toLowerCase().includes(classWord));
             }
         } else {
-            results = allTags.filter(x => x[0].toLowerCase().includes(tagword));
+            results = classTagList;
         }
-        // it's good to show all results
-        if (!acConfig.showAllResults) {
-            results = results.slice(0, acConfig.maxResults);
+    } else if (acConfig.useClass && ((tagword.startsWith(">") && !tagword.endsWith("<")) || tagword === ">")) {
+        if (tagword === ">") {
+            results = classNameList.map(x => ["Class: " + x.trim(), "className"]);
+        } else {
+            let className = tagword.replace(">", "")
+            results = classNameList.filter(x => x.toLowerCase().includes(className)).map(x => ["Class: " + x.trim(), "className"]);
         }
+    } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
+        if (tagword === "<") {
+            results = embeddings.map(x => ["Embeddings: " + x.trim(), "embedding"]);
+        } else {
+            let embedding = tagword.replace("<", "");
+            results = embeddings.filter(x => x.toLowerCase().includes(embedding)).map(x => ["Embeddings: " + x.trim(), "embedding"]);
+        }
+    }
+
+    let maxResults = results ? acConfig.maxResults + results.length : acConfig.maxResults;
+
+    if (acConfig.translation.searchByTranslation) {
+        results = results.concat(allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)));
+        if (!acConfig.translation.onlyShowTranslation) {
+            results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
+        }
+    } else {
+        results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword)));
+    }
+
+    if (!acConfig.showAllResults) {
+        results = results.slice(0, maxResults);
     }
 
     // Guard for empty results
@@ -521,6 +544,12 @@ onUiUpdate(function () {
         } catch (e) {
             console.error("Error loading config.json: " + e);
             return;
+        }
+    }
+    // Load classNameList
+    if (acConfig.useClass && (!classNameList || classNameList.length === 0)) {
+        for (const key in acConfig.colors.danbooru) {
+            classNameList.push(key)
         }
     }
     // Load main tags and translations
