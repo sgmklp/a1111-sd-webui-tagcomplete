@@ -391,13 +391,13 @@ function autocomplete(textArea, prompt, fixedTag = null) {
             return;
         }
 
-        acConfig.replaceUnderscores ? tagword.replaceAll(" ", "_") : tagword
 
     } else {
         tagword = fixedTag;
     }
 
     tagword = tagword.toLowerCase();
+    tagword = acConfig.replaceUnderscores ? tagword.replaceAll(" ", "_") : tagword;
 
     results = [];
     let matchGruop = null;
@@ -478,7 +478,7 @@ function navigateInList(textArea, event) {
     // Return if the function is deactivated in the UI
     if (!acActive) return;
 
-    validKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Escape"];
+    validKeys = ["ArrowUp", "ArrowDown", "Enter", "Escape"];
 
     if (!validKeys.includes(event.key)) return;
     if (!isVisible(textArea)) return
@@ -502,12 +502,6 @@ function navigateInList(textArea, event) {
                 selectedTag = (selectedTag + 1) % resultCount;
             }
             break;
-        case "ArrowLeft":
-            selectedTag = 0;
-            break;
-        case "ArrowRight":
-            selectedTag = resultCount - 1;
-            break;
         case "Enter":
             if (selectedTag !== null) {
                 insertTextAtCursor(textArea, results[selectedTag]);
@@ -518,7 +512,7 @@ function navigateInList(textArea, event) {
             break;
     }
     if (selectedTag == resultCount - 1
-        && (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
         addResultsToList(textArea, results, false);
     }
     // Update highlighting
