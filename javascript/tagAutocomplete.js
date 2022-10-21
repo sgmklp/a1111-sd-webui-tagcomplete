@@ -242,9 +242,6 @@ function insertTextAtCursor(textArea, result) {
         sanitizedText = `<${text.replace(/^.*?: /g, "")}>`;
     } else {
         sanitizedText = acConfig.replaceUnderscores ? text.replaceAll("_", " ") : text;
-        if (tagType === "wildcardTag") {
-            sanitizedText = sanitizedText.replace(/\s*>>.*/g, ""); //delete translation
-        }
     }
 
     if (acConfig.escapeParentheses) {
@@ -402,16 +399,17 @@ function autocomplete(textArea, prompt, fixedTag = null) {
     tagword = tagword.toLowerCase();
     tagword = acConfig.replaceUnderscores ? tagword.replaceAll(" ", "_") : tagword;
 
-    if (acConfig.useWildcards && [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)].length > 0) {
-        // Show wildcards from a file with that name
-        wcMatch = [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)]
-        let wcFile = wcMatch[0][1];
-        let wcWord = wcMatch[0][2];
-        results = wildcards[wcFile].filter(x => (wcWord !== null) ? x.toLowerCase().includes(wcWord) : x) // Filter by tagword
-            .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
-    } else if (acConfig.useWildcards && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
-        // Show available wildcard files
-        let tempResults = [];
+    results = [];
+    let matchGruop = null;
+    if (acConfig.useWildcards && (matchGruop = tagword.match(/\b__([^,_ ]+)__([^, ]*)\b/)) && matchGruop.length !== 0) {
+        let wcFile = matchGruop[1];
+        let wcWord = matchGruop[2];
+        if (wcWord) {
+            results = wildcards[wcFile].filter(x => x.toLowerCase().includes(wcWord)).map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
+        } else {
+            results = wildcards[wcFile].map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
+        }
+    } else if (acConfig.useWildcards && ((tagword.startsWith("__") && !tagword.endsWith("__")) || tagword === "__")) {
         if (tagword !== "__") {
             results = wildcardFiles.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]);
         } else {
@@ -442,18 +440,22 @@ function autocomplete(textArea, prompt, fixedTag = null) {
             let className = tagword.replace(">", "")
             results = classNameList.filter(x => x[1].toLowerCase().includes(className)).map(x => ["Class: " + x[1], "className"]);
         }
-        results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]); // Mark as wildcard
     } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
-        // Show embeddings
-        let tempResults = [];
-        if (tagword !== "<") {
-            tempResults = embeddings.filter(x => x.toLowerCase().includes(tagword.replace("<", ""))) // Filter by tagword
+        if (tagword === "<") {
+            results = embeddings.map(x => ["Embeddings: " + x.trim(), "embedding"]);
         } else {
-            tempResults = embeddings;
+            let embedding = tagword.replace("<", "");
+            results = embeddings.filter(x => x.toLowerCase().includes(embedding)).map(x => ["Embeddings: " + x.trim(), "embedding"]);
         }
-        // Since some tags are kaomoji, we have to still get the normal results first.
-        genericResults = allTags.filter(x => x[0].toLowerCase().includes(tagword)).slice(0, acConfig.maxResults);
-        results = genericResults.concat(tempResults.map(x => ["Embeddings: " + x.trim(), "embedding"])); // Mark as embedding
+    }
+
+    let maxResults = results ? acConfig.maxResults + results.length : acConfig.maxResults;
+
+    if (acConfig.translation.searchByTranslation) {
+        results = results.concat(allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)));
+        if (!acConfig.translation.onlyShowTranslation) {
+            results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
+        }
     } else {
         results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword)));
     }
@@ -587,9 +589,8 @@ onUiUpdate(function () {
 
             wildcardFiles.forEach(fName => {
                 try {
-                    wildcards[fName.trim()] = readFile(`file/scripts/wildcards/${fName}.txt`).split("\n")
-                        .filter(x => x.trim().length > 0) // Remove empty lines
-                        console.log(`Load wildcards for ${fName}`);
+                    wildcards[fName] = readFile(`file/scripts/wildcards/${fName}.txt`).split("\n")
+                        .filter(x => x.trim().length > 0); // Remove empty lines
                 } catch (e) {
                     console.log(`Could not load wildcards for ${fName}`);
                 }
