@@ -18,7 +18,7 @@
 		"onlyShowTranslation": false
 	},
 	"extra": {
-		"extraFile": "tags-zh-full.csv",
+		"extraFile": "",
 		"onlyTranslationExtraFile": false
 	},
 	"colors": {
@@ -39,6 +39,26 @@
 			"6": ["red", "maroon"],
 			"7": ["whitesmoke", "black"],
 			"8": ["seagreen", "darkseagreen"]
+		}
+	},
+	"classList": {
+		"danbooru": {
+			"0": "General",
+			"1": "Artist",
+			"3": "Copyright",
+			"4": "Character",
+			"5": "Meta"
+		},
+		"e621": {
+			"-1": "Invalid",
+			"0": "General",
+			"1": "Artist",
+			"3": "Copyright",
+			"4": "Character",
+			"5": "Species",
+			"6": "Invalid",
+			"7": "Meta",
+			"8": "Lore"
 		}
 	}
 }

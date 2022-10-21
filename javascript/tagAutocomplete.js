@@ -300,6 +300,9 @@ function addResultsToList(textArea, results, resetList) {
     let tagColors = acConfig.colors;
     let mode = gradioApp().querySelector('.dark') ? 0 : 1;
     let nextLength = Math.min(results.length, resultCount + acConfig.resultStepLength);
+    let colorGroup = tagColors[tagFileName];
+    // Default to danbooru scheme if no matching one is found
+    if (colorGroup === undefined) colorGroup = tagColors["danbooru"];
 
     for (let i = resultCount; i < nextLength; i++) {
         let result = results[i];
@@ -316,15 +319,9 @@ function addResultsToList(textArea, results, resetList) {
             li.textContent = resultTag;
         }
 
-        // Wildcards & Embeds have no tag type
-        if (classNameList && classNameList.includes(result[1])) {
+        if (classNameList && classNameList.map(x => x[0]).includes(result[1])) {
             // Set the color of the tag
-            let tagType = result[1];
-            let colorGroup = tagColors[tagFileName];
-            // Default to danbooru scheme if no matching one is found
-            if (colorGroup === undefined) colorGroup = tagColors["danbooru"];
-
-            li.style = `color: ${colorGroup[tagType][mode]};`;
+            li.style = `color: ${colorGroup[result[1]][mode]};`;
         }
 
         // Add listener
@@ -422,7 +419,8 @@ function autocomplete(textArea, prompt, fixedTag = null) {
     } else if (acConfig.useClass && (matchGruop = tagword.match(/>(.+)<(.*)/)) && matchGruop.length !== 0) {
         let className = matchGruop[1];
         let classWord = matchGruop[2];
-        let classTagList = allTags.filter(x => x[1] && x[1] === className);
+        let classTypelist = classNameList.filter(x => x[1].toLowerCase().includes(className)).map(x => x[0]);
+        let classTagList = allTags.filter(x => x[1] && classTypelist.includes(x[1]));
         if (classWord) {
             if (acConfig.translation.searchByTranslation) {
                 results = classTagList.filter(x => x[2] && x[2].toLowerCase().includes(classWord) && !results.includes(x));
@@ -437,10 +435,10 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         }
     } else if (acConfig.useClass && ((tagword.startsWith(">") && !tagword.endsWith("<")) || tagword === ">")) {
         if (tagword === ">") {
-            results = classNameList.map(x => ["Class: " + x.trim(), "className"]);
+            results = classNameList.map(x => ["Class: " + x[1], "className"]);
         } else {
             let className = tagword.replace(">", "")
-            results = classNameList.filter(x => x.toLowerCase().includes(className)).map(x => ["Class: " + x.trim(), "className"]);
+            results = classNameList.filter(x => x[1].toLowerCase().includes(className)).map(x => ["Class: " + x[1], "className"]);
         }
     } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
         if (tagword === "<") {
@@ -548,8 +546,8 @@ onUiUpdate(function () {
     }
     // Load classNameList
     if (acConfig.useClass && (!classNameList || classNameList.length === 0)) {
-        for (const key in acConfig.colors.danbooru) {
-            classNameList.push(key)
+        for (const key in acConfig.classList.danbooru) {
+            classNameList.push([key, acConfig.classList.danbooru[key]]);
         }
     }
     // Load main tags and translations
