@@ -98,8 +98,9 @@ function readFile(filePath) {
     return request.responseText;
 }
 
-function loadCSV() {
-    let text = readFile(`file/tags/${acConfig.tagFile}`);
+// Load CSV
+function loadCSV(path) {
+    let text = readFile(path);
     return parseCSV(text);
 }
 
@@ -117,34 +118,47 @@ const debounce = (func, wait = 300) => {
     }
 }
 
-// Difference function to fix duplicates not being seen as changes in normal filter
-function difference(a, b) {
-    if (a.length == 0) {
-        return b;
+function findEditStart(text, cursorPos) {
+    for (var i = cursorPos - 1; i > 0; i--) {
+        if (text[i] === ',') {
+            break;
+        }
     }
-    if (b.length == 0) {
-        return a;
-    }
-
-    return [...b.reduce((acc, v) => acc.set(v, (acc.get(v) || 0) - 1),
-        a.reduce((acc, v) => acc.set(v, (acc.get(v) || 0) + 1), new Map())
-    )].reduce((acc, [v, count]) => acc.concat(Array(Math.abs(count)).fill(v)), []);
+    return i;
 }
+
+function findEditEnd(text, cursorPos) {
+    for (var i = cursorPos, length = text.length; i < length; i++) {
+        if (text[i] === ',') {
+            break;
+        }
+    }
+    return i;
+}
+
 // Get the identifier for the text area to differentiate between positive and negative
 function getTextAreaIdentifier(textArea) {
-    let txt2img_n = gradioApp().querySelector('#negative_prompt > label > textarea');
-    let img2img = gradioApp().querySelector('#tab_img2img');
-    let img2img_p = img2img.querySelector('#img2img_prompt > label > textarea');
-    let img2img_n = img2img.querySelector('#negative_prompt > label > textarea');
+    let txt2img_p = gradioApp().querySelector('#txt2img_prompt > label > textarea');
+    let txt2img_n = gradioApp().querySelector('#txt2img_neg_prompt > label > textarea');
+    let img2img_p = gradioApp().querySelector('#img2img_prompt > label > textarea');
+    let img2img_n = gradioApp().querySelector('#img2img_neg_prompt > label > textarea');
 
     let modifier = "";
-    if (textArea === img2img_p || textArea === img2img_n) {
-        modifier += ".img2img";
-    }
-    if (textArea === txt2img_n || textArea === img2img_n) {
-        modifier += ".n";
-    } else {
-        modifier += ".p";
+    switch (textArea) {
+        case txt2img_p:
+            modifier = ".txt2img.p";
+            break;
+        case txt2img_n:
+            modifier = ".txt2img.n";
+            break;
+        case img2img_p:
+            modifier = ".img2img.p";
+            break;
+        case img2img_n:
+            modifier = ".img2img.n";
+            break;
+        default:
+            break;
     }
     return modifier;
 }
@@ -186,7 +200,6 @@ function createCheckbox() {
 
 // The selected tag index. Needs to be up here so hide can access it.
 var selectedTag = null;
-var previousTags = [];
 
 // Show or hide the results div
 function isVisible(textArea) {
@@ -196,13 +209,11 @@ function isVisible(textArea) {
 }
 function showResults(textArea) {
     let textAreaId = getTextAreaIdentifier(textArea);
-
     let resultsDiv = gradioApp().querySelector('.autocompleteResults' + textAreaId);
     resultsDiv.style.display = "block";
 }
 function hideResults(textArea) {
     let textAreaId = getTextAreaIdentifier(textArea);
-
     let resultsDiv = gradioApp().querySelector('.autocompleteResults' + textAreaId);
     resultsDiv.style.display = "none";
     selectedTag = null;
@@ -213,17 +224,22 @@ function escapeRegExp(string) {
 }
 
 let hideBlocked = false;
+
 // On click, insert the tag into the prompt textbox with respect to the cursor position
-function insertTextAtCursor(textArea, result, tagword) {
+function insertTextAtCursor(textArea, result) {
     let text = result[0];
     let tagType = result[1];
-
-    let cursorPos = textArea.selectionStart;
     var sanitizedText = text
 
     // Replace differently depending on if it's a tag or wildcard
     if (tagType === "wildcardFile") {
         sanitizedText = "__" + text.replace("Wildcards: ", "") + "__";
+    } else if (tagType === "wildcardTag") {
+        sanitizedText = text.replace(/^.*?: /g, "");
+    } else if (tagType === "className") {
+        sanitizedText = `>${text.replace("Class: ", "")}<`;
+    } else if (tagType === "embedding") {
+        sanitizedText = `<${text.replace(/^.*?: /g, "")}>`;
     } else {
         sanitizedText = acConfig.replaceUnderscores ? text.replaceAll("_", " ") : text;
         if (tagType === "wildcardTag") {
@@ -239,148 +255,152 @@ function insertTextAtCursor(textArea, result, tagword) {
             .replaceAll("]", "\\]");
     }
 
-    var prompt = textArea.value;
-
-
     // Edit prompt text
-    let editStart = Math.max(cursorPos - tagword.length, 0);
-    let editEnd = Math.min(cursorPos + tagword.length, prompt.length);
-    let surrounding = prompt.substring(editStart, editEnd);
-    let match = surrounding.match(new RegExp(escapeRegExp(`${tagword}`)));
-    let afterInsertCursorPos = editStart + match.index + sanitizedText.length;
-
-    var optionalComma = "";
-    if (tagType !== "wildcardFile") {
-        optionalComma = surrounding.match(new RegExp(escapeRegExp(`${tagword},`))) !== null ? "" : ", ";
+    var prompt = textArea.value;
+    let cursorPos = textArea.selectionEnd;
+    let editStart = findEditStart(prompt, cursorPos);
+    let editEnd = findEditEnd(prompt, cursorPos);
+    let optionalComma = "";
+    if (editStart !== 0) {
+        optionalComma = ", ";
     }
 
-    // Replace partial tag word with new text, add comma if needed
-    let insert = surrounding.replace(tagword, sanitizedText + optionalComma);
-
     // Add back start
-    var newPrompt = prompt.substring(0, editStart) + insert + prompt.substring(editEnd);
-    textArea.value = newPrompt;
-    textArea.selectionStart = afterInsertCursorPos + optionalComma.length;
-    textArea.selectionEnd = textArea.selectionStart
+    textArea.value = prompt.substring(0, editStart) + optionalComma + sanitizedText + prompt.substring(editEnd);
+    textArea.selectionStart = editStart + sanitizedText.length + optionalComma.length;
+    textArea.selectionEnd = textArea.selectionStart;
 
     // Since we've modified a Gradio Textbox component manually, we need to simulate an `input` DOM event to ensure its
     // internal Svelte data binding remains in sync.
     textArea.dispatchEvent(new Event("input", { bubbles: true }));
 
-    // Update previous tags with the edited prompt to prevent re-searching the same term
-    let tags = newPrompt.match(/[^, ]+/g);
-    previousTags = tags;
-
     // Hide results after inserting
-    if (tagType === "wildcardFile") {
+    if (tagType === "wildcardFile" || tagType === "className") {
         // If it's a wildcard, we want to keep the results open so the user can select another wildcard
         hideBlocked = true;
         autocomplete(textArea, prompt, sanitizedText);
         setTimeout(() => { hideBlocked = false; }, 100);
     } else {
-        hideResults(textArea);
+        setTimeout(() => { hideResults(textArea); }, 100); // Enable autocomplete
     }
 }
 
-function addResultsToList(textArea, results, tagword) {
+function addResultsToList(textArea, results, resetList) {
     let textAreaId = getTextAreaIdentifier(textArea);
     let resultDiv = gradioApp().querySelector('.autocompleteResults' + textAreaId);
     let resultsList = resultDiv.querySelector('ul');
 
     // Reset list, selection and scrollTop since the list changed
-    resultsList.innerHTML = "";
-    selectedTag = null;
-    resultDiv.scrollTop = 0;
+    if (resetList) {
+        resultsList.innerHTML = "";
+        selectedTag = null;
+        resultDiv.scrollTop = 0;
+        resultCount = 0;
+    }
 
     // Find right colors from config
     let tagFileName = acConfig.tagFile.split(".")[0];
     let tagColors = acConfig.colors;
-
     let mode = gradioApp().querySelector('.dark') ? 0 : 1;
+    let nextLength = Math.min(results.length, resultCount + acConfig.resultStepLength);
+    let colorGroup = tagColors[tagFileName];
+    // Default to danbooru scheme if no matching one is found
+    if (colorGroup === undefined) colorGroup = tagColors["danbooru"];
 
-    for (let i = 0; i < results.length; i++) {
+    for (let i = resultCount; i < nextLength; i++) {
         let result = results[i];
+        let resultTag = acConfig.replaceUnderscores ? result[0].replaceAll("_", " ") : result[0];
         let li = document.createElement("li");
-        li.textContent = result[0];
 
-        // Wildcards & Embeds have no tag type
-        if (!result[1].startsWith("wildcard") && result[1] !== "embedding") {
+        //support only show the translation to result
+        if (result[2]) {
+            li.textContent = result[2];
+            if (!acConfig.translation.onlyShowTranslation) {
+                li.textContent += " >> " + resultTag;
+            }
+        } else {
+            li.textContent = resultTag;
+        }
+
+        if (classNameList && classNameList.map(x => x[0]).includes(result[1])) {
             // Set the color of the tag
-            let tagType = result[1];
-            let colorGroup = tagColors[tagFileName];
-            // Default to danbooru scheme if no matching one is found
-            if (colorGroup === undefined) colorGroup = tagColors["danbooru"];
-
-            li.style = `color: ${colorGroup[tagType][mode]};`;
+            li.style = `color: ${colorGroup[result[1]][mode]};`;
         }
 
         // Add listener
-        li.addEventListener("click", function () { insertTextAtCursor(textArea, result, tagword); });
+        li.addEventListener("click", function () { insertTextAtCursor(textArea, result); });
         // Add element to list
         resultsList.appendChild(li);
     }
+    resultCount = nextLength;
 }
 
-function updateSelectionStyle(textArea, num) {
+function updateSelectionStyle(textArea, newIndex, oldIndex) {
     let textAreaId = getTextAreaIdentifier(textArea);
     let resultDiv = gradioApp().querySelector('.autocompleteResults' + textAreaId);
     let resultsList = resultDiv.querySelector('ul');
     let items = resultsList.getElementsByTagName('li');
 
-    for (let i = 0; i < items.length; i++) {
-        items[i].classList.remove('selected');
+    if (oldIndex !== null) {
+        items[oldIndex].classList.remove('selected');
     }
 
-    items[num].classList.add('selected');
+    // make it safer
+    if (newIndex !== null) {
+        items[newIndex].classList.add('selected');
+    }
 
     // Set scrolltop to selected item if we are showing more than max results
     if (items.length > acConfig.maxResults) {
-        let selected = items[num];
+        let selected = items[newIndex];
         resultDiv.scrollTop = selected.offsetTop - resultDiv.offsetTop;
     }
 }
 
-wildcardFiles = [];
-wildcards = {};
-embeddings = [];
-allTags = [];
-results = [];
-tagword = "";
-resultCount = 0;
+var wildcardFiles = [];
+var wildcards = {};
+var embeddings = [];
+var classNameList = [];
+var allTags = [];
+var results = [];
+var tagword = "";
+var resultCount = 0;
 function autocomplete(textArea, prompt, fixedTag = null) {
     // Return if the function is deactivated in the UI
     if (!acActive) return;
 
     // Guard for empty prompt
-    if (prompt.length === 0) {
+    if (!prompt) {
         hideResults(textArea);
         return;
     }
 
-    if (fixedTag === null) {
-        // Match tags with RegEx to get the last edited one
-        let tags = prompt.match(/[^, ]+/g);
-        let diff = difference(tags, previousTags)
-        previousTags = tags;
+    if (!fixedTag) {
 
-        // Guard for no difference / only whitespace remaining
-        if (diff === null || diff.length === 0) {
-            if (!hideBlocked) hideResults(textArea);
-            return;
+        let cursorPos = textArea.selectionEnd;
+        let editStart = findEditStart(prompt, cursorPos);
+
+        tagword = prompt.substring(editStart, cursorPos);
+        let tagStart = tagword.search(/[^, ]/);
+        if (tagStart !== -1) {
+            tagword = tagword.substring(tagStart);
+        } else {
+            tagword = null;
         }
 
-        tagword = diff[0]
-
         // Guard for empty tagword
-        if (tagword === null || tagword.length === 0) {
+        if (!tagword) {
             hideResults(textArea);
             return;
         }
+
+
     } else {
         tagword = fixedTag;
     }
 
     tagword = tagword.toLowerCase();
+    tagword = acConfig.replaceUnderscores ? tagword.replaceAll(" ", "_") : tagword;
 
     if (acConfig.useWildcards && [...tagword.matchAll(/\b__([^,_ ]+)__([^, ]*)\b/g)].length > 0) {
         // Show wildcards from a file with that name
@@ -388,41 +408,82 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         let wcFile = wcMatch[0][1];
         let wcWord = wcMatch[0][2];
         results = wildcards[wcFile].filter(x => (wcWord !== null) ? x.toLowerCase().includes(wcWord) : x) // Filter by tagword
-            .map(x => [x.trim(), "wildcardTag"]); // Mark as wildcard
-            // .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
-    } else if ((tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__") && acConfig.useWildcards) {
+            .map(x => [wcFile + ": " + x.trim(), "wildcardTag"]); // Mark as wildcard
+    } else if (acConfig.useWildcards && (tagword.startsWith("__") && !tagword.endsWith("__") || tagword === "__")) {
         // Show available wildcard files
         let tempResults = [];
         if (tagword !== "__") {
-            tempResults = wildcardFiles.filter(x => x.toLowerCase().includes(tagword.replace("__", ""))) // Filter by tagword
+            results = wildcardFiles.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]);
         } else {
-            tempResults = wildcardFiles;
+            let wcFile = tagword.replace("__", "")
+            results = wildcardFiles.filter(x => x.toLowerCase().includes(wcFile)).map(x => ["Wildcards: " + x.trim(), "wildcardFile"])
         }
-        results = tempResults.map(x => [x.trim(), "wildcardFile"]); // Mark as wildcard
-        // results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]); // Mark as wildcard
+    } else if (acConfig.useClass && (matchGruop = tagword.match(/>(.+)<(.*)/)) && matchGruop.length !== 0) {
+        let className = matchGruop[1];
+        let classWord = matchGruop[2];
+        let classTypelist = classNameList.filter(x => x[1].toLowerCase().includes(className)).map(x => x[0]);
+        let classTagList = allTags.filter(x => x[1] && classTypelist.includes(x[1]));
+        if (classWord) {
+            if (acConfig.translation.searchByTranslation) {
+                results = classTagList.filter(x => x[2] && x[2].toLowerCase().includes(classWord) && !results.includes(x));
+                if (!acConfig.translation.onlyShowTranslation) {
+                    results = results.concat(classTagList.filter(x => x[0].toLowerCase().includes(classWord) && !results.includes(x)));
+                }
+            } else {
+                results = classTagList.filter(x => x[0].toLowerCase().includes(classWord));
+            }
+        } else {
+            results = classTagList;
+        }
+    } else if (acConfig.useClass && ((tagword.startsWith(">") && !tagword.endsWith("<")) || tagword === ">")) {
+        if (tagword === ">") {
+            results = classNameList.map(x => ["Class: " + x[1], "className"]);
+        } else {
+            let className = tagword.replace(">", "")
+            results = classNameList.filter(x => x[1].toLowerCase().includes(className)).map(x => ["Class: " + x[1], "className"]);
+        }
+        results = tempResults.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]); // Mark as wildcard
+    } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
+        // Show embeddings
+        let tempResults = [];
+        if (tagword !== "<") {
+            tempResults = embeddings.filter(x => x.toLowerCase().includes(tagword.replace("<", ""))) // Filter by tagword
+        } else {
+            tempResults = embeddings;
+        }
+        // Since some tags are kaomoji, we have to still get the normal results first.
+        genericResults = allTags.filter(x => x[0].toLowerCase().includes(tagword)).slice(0, acConfig.maxResults);
+        results = genericResults.concat(tempResults.map(x => ["Embeddings: " + x.trim(), "embedding"])); // Mark as embedding
     } else {
-        results = allTags.filter(x => x[0].toLowerCase().includes(tagword)).slice(0, acConfig.maxResults);
+        results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword)));
     }
-    resultCount = results.length;
+
+    if (!acConfig.showAllResults) {
+        results = results.slice(0, maxResults);
+    }
 
     // Guard for empty results
-    if (resultCount === 0) {
+    if (!results || results.length === 0) {
         hideResults(textArea);
         return;
     }
 
     showResults(textArea);
-    addResultsToList(textArea, results, tagword);
+    addResultsToList(textArea, results, true);
 }
 
 function navigateInList(textArea, event) {
     // Return if the function is deactivated in the UI
     if (!acActive) return;
 
-    validKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Escape"];
+    validKeys = ["ArrowUp", "ArrowDown", "Enter", "Escape"];
 
     if (!validKeys.includes(event.key)) return;
     if (!isVisible(textArea)) return
+    // Return if ctrl key is pressed to not interfere with weight editing shortcut
+    if (event.ctrlKey || event.altKey) return;
+
+    let oldSelectedTag = selectedTag;
 
     switch (event.key) {
         case "ArrowUp":
@@ -439,52 +500,86 @@ function navigateInList(textArea, event) {
                 selectedTag = (selectedTag + 1) % resultCount;
             }
             break;
-        case "ArrowLeft":
-            selectedTag = 0;
-            break;
-        case "ArrowRight":
-            selectedTag = resultCount - 1;
-            break;
         case "Enter":
             if (selectedTag !== null) {
-                insertTextAtCursor(textArea, results[selectedTag], tagword);
+                insertTextAtCursor(textArea, results[selectedTag]);
             }
             break;
         case "Escape":
             hideResults(textArea);
             break;
     }
+    if (selectedTag == resultCount - 1
+        && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        addResultsToList(textArea, results, false);
+    }
     // Update highlighting
     if (selectedTag !== null)
-        updateSelectionStyle(textArea, selectedTag);
+        updateSelectionStyle(textArea, selectedTag, oldSelectedTag);
 
     // Prevent default behavior
     event.preventDefault();
     event.stopPropagation();
 }
 
-styleAdded = false;
+var styleAdded = false;
 onUiUpdate(function () {
     // Load config
-    if (acConfig === null) {
+    if (!acConfig) {
         try {
             acConfig = JSON.parse(readFile("file/tags/config.json"));
+            if (acConfig.translation.onlyShowTranslation) {
+                acConfig.translation.searchByTranslation = true; // if only show translation, enable search by translation is necessary
+            }
         } catch (e) {
             console.error("Error loading config.json: " + e);
             return;
         }
     }
-    // Load main tags
-    if (allTags.length === 0) {
+    // Load classNameList
+    if (acConfig.useClass && (!classNameList || classNameList.length === 0)) {
+        for (const key in acConfig.classList.danbooru) {
+            classNameList.push([key, acConfig.classList.danbooru[key]]);
+        }
+    }
+    // Load main tags and translations
+    if (!allTags || allTags.length === 0) {
         try {
-            allTags = loadCSV();
+            allTags = loadCSV(`file/tags/${acConfig.tagFile}`);
         } catch (e) {
             console.error("Error loading tags file: " + e);
             return;
         }
+        if (acConfig.extra.extraFile) {
+            try {
+                extras = loadCSV(`file/tags/${acConfig.extra.extraFile}`);
+                if (acConfig.extra.onlyTranslationExtraFile) {
+                    // This works purely on index, so it's not very robust. But a lot faster.
+                    for (let i = 0, n = extras.length; i < n; i++) {
+                        if (extras[i][0]) {
+                            allTags[i][2] = extras[i][0];
+                        }
+                    }
+                } else {
+                    extras.forEach(e => {
+                        // Check if a tag in allTags has the same name as the extra tag
+                        if (tag = allTags.find(t => t[0] === e[0] && t[1] == e[1])) {
+                            if (e[2]) // If the extra tag has a translation, add it to the tag
+                                tag[2] = e[2];
+                        } else {
+                            // If the tag doesn't exist, add it to allTags
+                            allTags.push(e);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error("Error loading extra translation file: " + e);
+                return;
+            }
+        }
     }
     // Load wildcards
-    if (wildcardFiles.length === 0 && acConfig.useWildcards) {
+    if (acConfig.useWildcards && (!wildcardFiles || wildcardFiles.length === 0)) {
         try {
             wildcardFiles = readFile("file/tags/temp/wc.txt").split("\n")
                 .filter(x => x.trim().length > 0) // Remove empty lines
@@ -504,7 +599,7 @@ onUiUpdate(function () {
         }
     }
     // Load embeddings
-    if (embeddings.length === 0 && acConfig.useEmbeddings) {
+    if (acConfig.useEmbeddings && (!embeddings || embeddings.length === 0)) {
         try {
             embeddings = readFile("file/tags/temp/emb.txt").split("\n")
                 .filter(x => x.trim().length > 0) // Remove empty lines
@@ -517,32 +612,31 @@ onUiUpdate(function () {
     // Find all textareas
     let txt2imgTextArea = gradioApp().querySelector('#txt2img_prompt > label > textarea');
     let img2imgTextArea = gradioApp().querySelector('#img2img_prompt > label > textarea');
-    let negativeTextAreas = Array.from(gradioApp().querySelectorAll('#negative_prompt > label > textarea'));
-    let textAreas = [txt2imgTextArea, img2imgTextArea, negativeTextAreas[0], negativeTextAreas[1]];
+    let txt2imgTextArea_n = gradioApp().querySelector('#txt2img_neg_prompt > label > textarea');
+    let img2imgTextArea_n = gradioApp().querySelector('#img2img_neg_prompt > label > textarea');
+    let textAreas = [txt2imgTextArea, img2imgTextArea, txt2imgTextArea_n, img2imgTextArea_n];
 
     let quicksettings = gradioApp().querySelector('#quicksettings');
 
     // Not found, we're on a page without prompt textareas
     if (textAreas.every(v => v === null || v === undefined)) return;
-    // Already added?
-    if (gradioApp().querySelector('.autocompleteResults.p') !== null
-        && (gradioApp().querySelector('.autocompleteResults.n') === null
-            && !acConfig.activeIn.negativePrompts)) {
+    // Already added or unnecessary to add
+    if (gradioApp().querySelector('.autocompleteResults.p')) {
+        if (gradioApp().querySelector('.autocompleteResults.n') || !acConfig.activeIn.negativePrompts) {
+            return;
+        }
+    } else if (!acConfig.activeIn.txt2img && !acConfig.activeIn.img2img) {
         return;
     }
 
     textAreas.forEach(area => {
-        // Skip directly if not found on the page
-        if (area === null || area === undefined) return;
 
         // Return if autocomplete is disabled for the current area type in config
         let textAreaId = getTextAreaIdentifier(area);
-        if (textAreaId.includes("p") || (textAreaId.includes("n") && acConfig.activeIn.negativePrompts)) {
-            if (textAreaId.includes("img2img")) {
-                if (!acConfig.activeIn.img2img) return;
-            } else {
-                if (!acConfig.activeIn.txt2img) return;
-            }
+        if ((!acConfig.activeIn.img2img && textAreaId.includes("img2img"))
+            || (!acConfig.activeIn.txt2img && textAreaId.includes("txt2img"))
+            || (!acConfig.activeIn.negativePrompts && textAreaId.includes("n"))) {
+            return;
         }
 
         // Only add listeners once
