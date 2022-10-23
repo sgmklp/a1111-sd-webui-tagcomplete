@@ -1,5 +1,18 @@
-var acConfig = null;
+var editMode = 1;
+var resultCount = 0;
+var modeCount = 2;
 var acActive = true;
+var styleAdded = false;
+var hideBlocked = false;
+var acConfig = null;
+var selectedTag = null;
+var wildcards = {};
+var wildcardFiles = [];
+var embeddings = [];
+var classObjectList = [];
+var allTags = [];
+var results = [];
+var tagWord = "";
 
 // Style for new elements. Gets appended to the Gradio root.
 let autocompleteCSS_dark = `
@@ -51,7 +64,21 @@ let autocompleteCSS_light = `
     .autocompleteResultsList > li.selected {
         background-color: #e5e7eb;
     }
-`;
+    `;
+
+// Debounce function to prevent spamming the autocomplete function
+var dbTimeOut;
+const debounce = (func, wait = 300) => {
+    return function (...args) {
+        if (dbTimeOut) {
+            clearTimeout(dbTimeOut);
+        }
+
+        dbTimeOut = setTimeout(() => {
+            func.apply(this, args);
+        }, wait);
+    }
+}
 
 // Parse the CSV file into a 2D array. Doesn't use regex, so it is very lightweight.
 function parseCSV(str) {
@@ -104,34 +131,62 @@ function loadCSV(path) {
     return parseCSV(text);
 }
 
-// Debounce function to prevent spamming the autocomplete function
-var dbTimeOut;
-const debounce = (func, wait = 300) => {
-    return function (...args) {
-        if (dbTimeOut) {
-            clearTimeout(dbTimeOut);
-        }
-
-        dbTimeOut = setTimeout(() => {
-            func.apply(this, args);
-        }, wait);
-    }
-}
 
 function findEditStart(text, cursorPos) {
-    for (var i = cursorPos - 1; i > 0; i--) {
-        if (text[i] === ',') {
+    let i = null;
+    switch (editMode) {
+        case 0:
+            for (i = cursorPos - 1; i > 0; i--) {
+                if (text[i] === ',') {
+                    break;
+                }
+            }
             break;
-        }
+        case 1:
+            for (i = cursorPos - 1; i > 0; i--) {
+                if (text[i] === ' ' || text[i] === ',') {
+                    break;
+                }
+            }
+            while (i >= 0 && text[i] === ' ') {
+                i--;
+            }
+            if (i !== 0) {
+                i++;
+            }
+            break;
+        default:
+            break;
     }
     return i;
 }
 
 function findEditEnd(text, cursorPos) {
-    for (var i = cursorPos, length = text.length; i < length; i++) {
-        if (text[i] === ',') {
+    let i = null;
+    let length = text.length;
+    switch (editMode) {
+        case 0:
+            for (i = cursorPos; i < length; i++) {
+                if (text[i] === ',') {
+                    break;
+                }
+            }
             break;
-        }
+        case 1:
+            for (i = cursorPos; i < length; i++) {
+                if (text[i] === ' ' || text[i] === ',') {
+                    break;
+                }
+            }
+            while (i < length && text[i] === ' ') {
+                i++;
+            }
+            if (i !== length && text[i] !== ',') {
+                i--;
+            }
+            break;
+        default:
+            break;
     }
     return i;
 }
@@ -180,26 +235,37 @@ function createResultsDiv(textArea) {
 }
 
 // Create the checkbox to enable/disable autocomplete
-function createCheckbox() {
-    let label = document.createElement("label");
+function createConfigBar() {
+    let configBar = document.createElement("div");
     let input = document.createElement("input");
     let span = document.createElement("span");
+    let select = document.createElement("select");
+    let tagMode = document.createElement("option");
+    let wordMode = document.createElement("option");
 
-    label.setAttribute('id', 'acActiveCheckbox');
-    label.setAttribute('class', '"flex items-center text-gray-700 text-sm rounded-lg cursor-pointer dark:bg-transparent');
+    configBar.setAttribute('id', 'autoCompleteConfigBar');
+    configBar.setAttribute('class', 'flex items-center text-gray-700 text-sm rounded-lg cursor-pointer dark:bg-transparent');
     input.setAttribute('type', 'checkbox');
-    input.setAttribute('class', 'gr-check-radio gr-checkbox')
+    input.setAttribute('class', 'ml-2 gr-check-radio gr-checkbox')
     span.setAttribute('class', 'ml-2');
+    select.setAttribute("class", 'ml-2 gr-box gr-input disabled:cursor-not-allowed');
+
+
+    select.add(tagMode, null);
+    select.add(wordMode, null);
+    configBar.appendChild(select);
+    configBar.appendChild(span);
+    configBar.appendChild(input);
 
     span.textContent = "Enable Autocomplete";
+    tagMode.textContent = "Tag Mode"
+    wordMode.textContent = "Word Mode"
+    input.checked = acActive;
+    select.selectedIndex = editMode;
 
-    label.appendChild(input);
-    label.appendChild(span);
-    return label;
+    return configBar;
 }
 
-// The selected tag index. Needs to be up here so hide can access it.
-var selectedTag = null;
 
 // Show or hide the results div
 function isVisible(textArea) {
@@ -222,8 +288,6 @@ function hideResults(textArea) {
 function escapeRegExp(string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
-
-let hideBlocked = false;
 
 // On click, insert the tag into the prompt textbox with respect to the cursor position
 function insertTextAtCursor(textArea, result) {
@@ -258,8 +322,20 @@ function insertTextAtCursor(textArea, result) {
     let editStart = findEditStart(prompt, cursorPos);
     let editEnd = findEditEnd(prompt, cursorPos);
     let optionalComma = "";
+    if (editStart === null || editEnd === null) {
+        return;
+    }
     if (editStart !== 0) {
-        optionalComma = ", ";
+        switch (editMode) {
+            case 0:
+                optionalComma = ", ";
+                break;
+            case 1:
+                optionalComma = " ";
+                break;
+            default:
+                break;
+        }
     }
 
     // Add back start
@@ -354,17 +430,11 @@ function updateSelectionStyle(textArea, newIndex, oldIndex) {
     }
 }
 
-var wildcardFiles = [];
-var wildcards = {};
-var embeddings = [];
-var classObjectList = [];
-var allTags = [];
-var results = [];
-var tagword = "";
-var resultCount = 0;
 function autocomplete(textArea, prompt, fixedTag = null) {
     // Return if the function is deactivated in the UI
-    if (!acActive) return;
+    if (!acActive) {
+        return;
+    }
 
     // Guard for empty prompt
     if (!prompt) {
@@ -376,32 +446,34 @@ function autocomplete(textArea, prompt, fixedTag = null) {
 
         let cursorPos = textArea.selectionEnd;
         let editStart = findEditStart(prompt, cursorPos);
+        if (editStart === null) {
+            return;
+        }
 
-        tagword = prompt.substring(editStart, cursorPos);
-        let tagStart = tagword.search(/[^, ]/);
+        tagWord = prompt.substring(editStart, cursorPos);
+        let tagStart = tagWord.search(/[^, ]/);
         if (tagStart !== -1) {
-            tagword = tagword.substring(tagStart);
+            tagWord = tagWord.substring(tagStart);
         } else {
-            tagword = null;
+            tagWord = null;
         }
 
         // Guard for empty tagword
-        if (!tagword) {
+        if (!tagWord) {
             hideResults(textArea);
             return;
         }
 
-
     } else {
-        tagword = fixedTag;
+        tagWord = fixedTag;
     }
 
-    tagword = tagword.toLowerCase();
-    tagword = acConfig.replaceUnderscores ? tagword.replaceAll(" ", "_") : tagword;
+    tagWord = tagWord.toLowerCase();
+    tagWord = acConfig.replaceUnderscores ? tagWord.replaceAll(" ", "_") : tagWord;
 
     results = [];
     let matchGruop = null;
-    if (acConfig.useWildcards && (matchGruop = tagword.match(/\b__([^,_ ]+)__([^, ]*)\b/)) && matchGruop.length !== 0) {
+    if (acConfig.useWildcards && (matchGruop = tagWord.match(/\b__([^,_ ]+)__([^, ]*)\b/)) && matchGruop.length !== 0) {
         let wcFile = matchGruop[1];
         let wcWord = matchGruop[2];
         if (wcWord) {
@@ -409,14 +481,14 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         } else {
             results = wildcards[wcFile].map(x => [wcFile + ": " + x.trim(), "wildcardTag"]);
         }
-    } else if (acConfig.useWildcards && ((tagword.startsWith("__") && !tagword.endsWith("__")) || tagword === "__")) {
-        if (tagword !== "__") {
+    } else if (acConfig.useWildcards && ((tagWord.startsWith("__") && !tagWord.endsWith("__")) || tagWord === "__")) {
+        if (tagWord !== "__") {
             results = wildcardFiles.map(x => ["Wildcards: " + x.trim(), "wildcardFile"]);
         } else {
-            let wcFile = tagword.replace("__", "")
+            let wcFile = tagWord.replace("__", "")
             results = wildcardFiles.filter(x => x.toLowerCase().includes(wcFile)).map(x => ["Wildcards: " + x.trim(), "wildcardFile"])
         }
-    } else if (acConfig.class.useClass && (matchGruop = tagword.match(/>(.+)<(.*)/)) && matchGruop.length !== 0) {
+    } else if (acConfig.class.useClass && (matchGruop = tagWord.match(/>(.+)<(.*)/)) && matchGruop.length !== 0) {
         let className = matchGruop[1];
         let classWord = matchGruop[2];
         let classType = null;
@@ -451,19 +523,19 @@ function autocomplete(textArea, prompt, fixedTag = null) {
             let searchFormat = new RegExp("^" + classType + "\\.[0-9]+$");
             results = classObjectList.filter(x => (x[0].search(searchFormat) !== -1)).map(x => ["Class: " + x[1], "className"]).concat(results);
         }
-    } else if (acConfig.class.useClass && ((tagword.startsWith(">") && !tagword.endsWith("<")) || tagword === ">")) {
+    } else if (acConfig.class.useClass && ((tagWord.startsWith(">") && !tagWord.endsWith("<")) || tagWord === ">")) {
         results = classObjectList.filter(x => (x[0].search(/.-?[0-9]+$/) === -1));
-        if (tagword === ">") {
+        if (tagWord === ">") {
             results = results.map(x => ["Class: " + x[1], "className"]);
         } else {
-            let className = tagword.replace(">", "")
+            let className = tagWord.replace(">", "")
             results = results.filter(x => x[1].toLowerCase().includes(className)).map(x => ["Class: " + x[1], "className"]);
         }
-    } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
-        if (tagword === "<") {
+    } else if (acConfig.useEmbeddings && tagWord.match(/<[^,> ]*>?/g)) {
+        if (tagWord === "<") {
             results = embeddings.map(x => ["Embeddings: " + x.trim(), "embedding"]);
         } else {
-            let embedding = tagword.replace("<", "");
+            let embedding = tagWord.replace("<", "");
             results = embeddings.filter(x => x.toLowerCase().includes(embedding)).map(x => ["Embeddings: " + x.trim(), "embedding"]);
         }
     }
@@ -471,12 +543,12 @@ function autocomplete(textArea, prompt, fixedTag = null) {
     let maxResults = results ? acConfig.maxResults + results.length : acConfig.maxResults;
 
     if (acConfig.translation.searchByTranslation) {
-        results = results.concat(allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagword)));
+        results = results.concat(allTags.filter(x => x[2] && x[2].toLowerCase().includes(tagWord)));
         if (!acConfig.translation.onlyShowTranslation) {
-            results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword) && !results.includes(x)));
+            results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagWord) && !results.includes(x)));
         }
     } else {
-        results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagword)));
+        results = results.concat(allTags.filter(x => x[0].toLowerCase().includes(tagWord)));
     }
 
     if (!acConfig.showAllResults) {
@@ -494,15 +566,39 @@ function autocomplete(textArea, prompt, fixedTag = null) {
 }
 
 function navigateInList(textArea, event) {
+    if (event.shiftKey && event.key === "Escape") {
+        let checkBox = gradioApp().querySelector("#autoCompleteConfigBar > input")
+        if (checkBox) {
+            acActive = !acActive;
+            checkBox.checked = acActive;
+            if (!acActive) {
+                hideResults();
+            }
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    } else if (event.ctrlKey && event.key === "m") {
+        let modeSelete = gradioApp().querySelector("#autoCompleteConfigBar > select")
+        if (modeSelete) {
+            editMode = (editMode + 1) % modeCount;
+            modeSelete.selectedIndex = editMode;
+            autocomplete(textArea, textArea.value);
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        showResults(textArea);
+    }
     // Return if the function is deactivated in the UI
-    if (!acActive) return;
+    if (!acActive || !isVisible(textArea) || event.ctrlKey || event.altKey) {
+        return;
+    }
 
-    validKeys = ["ArrowUp", "ArrowDown", "Enter", "Escape"];
+    let validKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "-", "=", "Enter", "Tab", "Escape"];
 
-    if (!validKeys.includes(event.key)) return;
-    if (!isVisible(textArea)) return
-    // Return if ctrl key is pressed to not interfere with weight editing shortcut
-    if (event.ctrlKey || event.altKey) return;
+    if (!validKeys.includes(event.key)) {
+        return;
+    }
 
     let oldSelectedTag = selectedTag;
 
@@ -521,29 +617,53 @@ function navigateInList(textArea, event) {
                 selectedTag = (selectedTag + 1) % resultCount;
             }
             break;
-        case "Enter":
-            if (selectedTag !== null) {
-                insertTextAtCursor(textArea, results[selectedTag]);
+        case "ArrowLeft":
+            if (textArea.selectionEnd === 0) {
+                hideResults();
+                return;
             }
+            textArea.selectionEnd--;
+            autocomplete(textArea, textArea.value);
+            break;
+            case "ArrowRight":
+                if (textArea.selectionEnd === textArea.value.length) {
+                hideResults();
+                return;
+            }
+            textArea.selectionStart++;
+            autocomplete(textArea, textArea.value);
+            break;
+        case "-":
+            selectedTag = 0;
+            break;
+        case "=":
+            selectedTag = resultCount - 1;
+            break;
+        case "Enter":
+        case "Tab":
+            if (selectedTag === null) {
+                selectedTag = 0;
+            }
+            insertTextAtCursor(textArea, results[selectedTag]);
             break;
         case "Escape":
             hideResults(textArea);
             break;
     }
     if (selectedTag == resultCount - 1
-        && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        && (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "-" || event.key === "=")) {
         addResultsToList(textArea, results, false);
     }
     // Update highlighting
-    if (selectedTag !== null)
+    if (selectedTag !== null) {
         updateSelectionStyle(textArea, selectedTag, oldSelectedTag);
+    }
 
     // Prevent default behavior
     event.preventDefault();
     event.stopPropagation();
 }
 
-var styleAdded = false;
 onUiUpdate(function () {
     // Load config
     if (!acConfig) {
@@ -642,7 +762,9 @@ onUiUpdate(function () {
     let quicksettings = gradioApp().querySelector('#quicksettings');
 
     // Not found, we're on a page without prompt textareas
-    if (textAreas.every(v => v === null || v === undefined)) return;
+    if (textAreas.every(v => v === null || v === undefined)) {
+        return;
+    }
     // Already added or unnecessary to add
     if (gradioApp().querySelector('.autocompleteResults.p')) {
         if (gradioApp().querySelector('.autocompleteResults.n') || !acConfig.activeIn.negativePrompts) {
@@ -682,17 +804,21 @@ onUiUpdate(function () {
         }
     });
 
-    if (gradioApp().querySelector("#acActiveCheckbox") === null) {
+    if (gradioApp().querySelector("#autoCompleteConfigBar") === null) {
         // Add toggle switch
-        let cb = createCheckbox();
-        cb.querySelector("input").checked = acActive;
-        cb.querySelector("input").addEventListener("change", (e) => {
+        let configBar = createConfigBar();
+        configBar.querySelector("input").addEventListener("change", (e) => {
             acActive = e.target.checked;
         });
-        quicksettings.parentNode.insertBefore(cb, quicksettings.nextSibling);
+        configBar.querySelector("select").addEventListener("change", (e) => {
+            editMode = e.target.selectedIndex;
+        });
+        quicksettings.parentNode.insertBefore(configBar, quicksettings.nextSibling);
     }
 
-    if (styleAdded) return;
+    if (styleAdded) {
+        return;
+    }
 
     // Add style to dom
     let acStyle = document.createElement('style');
