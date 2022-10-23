@@ -12,7 +12,11 @@
 	"escapeParentheses": true,
 	"useWildcards": true,
 	"useEmbeddings": true,
-	"useClass": true,
+	"class":  {
+		"useClass": true,
+		"useSubclass": true,
+		"useStrictMode": true
+	},
 	"translation": {
 		"searchByTranslation": true,
 		"onlyShowTranslation": false

@@ -319,9 +319,9 @@ function addResultsToList(textArea, results, resetList) {
             li.textContent = resultTag;
         }
 
-        if (classNameList && classNameList.map(x => x[0]).includes(result[1])) {
+        if (classObjectList && classObjectList.map(x => x[0]).includes(result[1])) {
             // Set the color of the tag
-            li.style = `color: ${colorGroup[result[1]][mode]};`;
+            li.style = `color: ${colorGroup[result[1].split(".", 1)[0]][mode]};`;
         }
 
         // Add listener
@@ -357,7 +357,7 @@ function updateSelectionStyle(textArea, newIndex, oldIndex) {
 var wildcardFiles = [];
 var wildcards = {};
 var embeddings = [];
-var classNameList = [];
+var classObjectList = [];
 var allTags = [];
 var results = [];
 var tagword = "";
@@ -416,11 +416,25 @@ function autocomplete(textArea, prompt, fixedTag = null) {
             let wcFile = tagword.replace("__", "")
             results = wildcardFiles.filter(x => x.toLowerCase().includes(wcFile)).map(x => ["Wildcards: " + x.trim(), "wildcardFile"])
         }
-    } else if (acConfig.useClass && (matchGruop = tagword.match(/>(.+)<(.*)/)) && matchGruop.length !== 0) {
+    } else if (acConfig.class.useClass && (matchGruop = tagword.match(/>(.+)<(.*)/)) && matchGruop.length !== 0) {
         let className = matchGruop[1];
         let classWord = matchGruop[2];
-        let classTypelist = classNameList.filter(x => x[1].toLowerCase().includes(className)).map(x => x[0]);
-        let classTagList = allTags.filter(x => x[1] && classTypelist.includes(x[1]));
+        let classType = null;
+        for (let classObject of classObjectList) {
+            if (classObject[1].toLowerCase() === className) {
+                classType = classObject[0];
+                break;
+            }
+        }
+        if (!classType) {
+            return;
+        }
+        let classTagList = null;
+        if (acConfig.class.useStrictMode) {
+            classTagList = allTags.filter(x => x[1] && x[1] === classType);
+        } else {
+            classTagList = allTags.filter(x => x[1] && x[1].startsWith(classType));
+        }
         if (classWord) {
             if (acConfig.translation.searchByTranslation) {
                 results = classTagList.filter(x => x[2] && x[2].toLowerCase().includes(classWord) && !results.includes(x));
@@ -433,12 +447,17 @@ function autocomplete(textArea, prompt, fixedTag = null) {
         } else {
             results = classTagList;
         }
-    } else if (acConfig.useClass && ((tagword.startsWith(">") && !tagword.endsWith("<")) || tagword === ">")) {
+        if (acConfig.class.useSubclass) {
+            let searchFormat = new RegExp("^" + classType + "\\.[0-9]+$");
+            results = classObjectList.filter(x => (x[0].search(searchFormat) !== -1)).map(x => ["Class: " + x[1], "className"]).concat(results);
+        }
+    } else if (acConfig.class.useClass && ((tagword.startsWith(">") && !tagword.endsWith("<")) || tagword === ">")) {
+        results = classObjectList.filter(x => (x[0].search(/.-?[0-9]+$/) === -1));
         if (tagword === ">") {
-            results = classNameList.map(x => ["Class: " + x[1], "className"]);
+            results = results.map(x => ["Class: " + x[1], "className"]);
         } else {
             let className = tagword.replace(">", "")
-            results = classNameList.filter(x => x[1].toLowerCase().includes(className)).map(x => ["Class: " + x[1], "className"]);
+            results = results.filter(x => x[1].toLowerCase().includes(className)).map(x => ["Class: " + x[1], "className"]);
         }
     } else if (acConfig.useEmbeddings && tagword.match(/<[^,> ]*>?/g)) {
         if (tagword === "<") {
@@ -533,15 +552,18 @@ onUiUpdate(function () {
             if (acConfig.translation.onlyShowTranslation) {
                 acConfig.translation.searchByTranslation = true; // if only show translation, enable search by translation is necessary
             }
+            if (acConfig.class.useSubclass) {
+                acConfig.class.useClass = true;
+            }
         } catch (e) {
             console.error("Error loading config.json: " + e);
             return;
         }
     }
-    // Load classNameList
-    if (acConfig.useClass && (!classNameList || classNameList.length === 0)) {
+    // Load classObjectList
+    if (acConfig.class.useClass && (!classObjectList || classObjectList.length === 0)) {
         for (const key in acConfig.classList.danbooru) {
-            classNameList.push([key, acConfig.classList.danbooru[key]]);
+            classObjectList.push([key, acConfig.classList.danbooru[key]]);
         }
     }
     // Load main tags and translations
