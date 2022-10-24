@@ -348,7 +348,7 @@ function insertTextAtCursor(textArea, result) {
     textArea.dispatchEvent(new Event("input", { bubbles: true }));
 
     // Hide results after inserting
-    if (tagType === "wildcardFile" || tagType === "className") {
+    if (tagType === "wildcardFile" || tagType === "className" || tagType.endsWith("+")) {
         // If it's a wildcard, we want to keep the results open so the user can select another wildcard
         hideBlocked = true;
         autocomplete(textArea, prompt, sanitizedText);
@@ -372,7 +372,7 @@ function addResultsToList(textArea, results, resetList) {
     }
 
     // Find right colors from config
-    let tagFileName = acConfig.tagFile.split(".")[0];
+    let tagFileName = acConfig.tagFile.split(".", 1)[0];
     let tagColors = acConfig.colors;
     let mode = gradioApp().querySelector('.dark') ? 0 : 1;
     let nextLength = Math.min(results.length, resultCount + acConfig.resultStepLength);
@@ -395,9 +395,11 @@ function addResultsToList(textArea, results, resetList) {
             li.textContent = resultTag;
         }
 
-        if (classObjectList && classObjectList.map(x => x[0]).includes(result[1])) {
+        let resultType = result[1].split(".", 1)[0];
+
+        if (classObjectList && classObjectList.map(x => x[0]).includes(resultType)) {
             // Set the color of the tag
-            li.style = `color: ${colorGroup[result[1].split(".", 1)[0]][mode]};`;
+            li.style = `color: ${colorGroup[resultType][mode]};`;
         }
 
         // Add listener
@@ -681,9 +683,14 @@ onUiUpdate(function () {
         }
     }
     // Load classObjectList
-    if (acConfig.class.useClass && (!classObjectList || classObjectList.length === 0)) {
-        for (const key in acConfig.classList.danbooru) {
-            classObjectList.push([key, acConfig.classList.danbooru[key]]);
+    let tagFileName = acConfig.tagFile.split(".", 1)[0];
+    if (!acConfig.class.useClass) {
+        for (const key in acConfig.colors[tagFileName]) {
+            classObjectList.push([key, null]);
+        }
+    } else if (!classObjectList || classObjectList.length === 0) {
+        for (const key in acConfig.classList[tagFileName]) {
+            classObjectList.push([key, acConfig.classList[tagFileName][key]]);
         }
     }
     // Load main tags and translations
