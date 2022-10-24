@@ -597,7 +597,7 @@ function navigateInList(textArea, event) {
         return;
     }
 
-    let validKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "-", "=", "Enter", "Tab", "Escape"];
+    let validKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown", "Enter", "Tab", "Escape"];
 
     if (!validKeys.includes(event.key)) {
         return;
@@ -636,10 +636,10 @@ function navigateInList(textArea, event) {
             textArea.selectionStart++;
             autocomplete(textArea, textArea.value);
             break;
-        case "-":
+        case "PageUp":
             selectedTag = 0;
             break;
-        case "=":
+        case "PageDown":
             selectedTag = resultCount - 1;
             break;
         case "Enter":
@@ -654,7 +654,7 @@ function navigateInList(textArea, event) {
             break;
     }
     if (selectedTag == resultCount - 1
-        && (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "-" || event.key === "=")) {
+        && (event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "PageUp" || event.key === "PageDown")) {
         addResultsToList(textArea, results, false);
     }
     // Update highlighting
@@ -683,14 +683,13 @@ onUiUpdate(function () {
             return;
         }
     }
-    // Load classObjectList
     let tagFileName = acConfig.tagFile.split(".", 1)[0];
     if (!classColorList || classColorList.length === 0) {
         for (const key in acConfig.colors[tagFileName]) {
             classColorList.push(key);
         }
     }
-
+    // Load classObjectList
     if (acConfig.class.useClass && (!classObjectList || classObjectList.length === 0)) {
     }
     // Load main tags and translations
