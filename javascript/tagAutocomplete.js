@@ -10,6 +10,7 @@ var wildcards = {};
 var wildcardFiles = [];
 var embeddings = [];
 var classObjectList = [];
+var classColorList = [];
 var allTags = [];
 var results = [];
 var tagWord = "";
@@ -397,7 +398,7 @@ function addResultsToList(textArea, results, resetList) {
 
         let resultType = result[1].split(".", 1)[0];
 
-        if (classObjectList && classObjectList.map(x => x[0]).includes(resultType)) {
+        if (classColorList && classColorList.includes(resultType)) {
             // Set the color of the tag
             li.style = `color: ${colorGroup[resultType][mode]};`;
         }
@@ -684,14 +685,13 @@ onUiUpdate(function () {
     }
     // Load classObjectList
     let tagFileName = acConfig.tagFile.split(".", 1)[0];
-    if (!acConfig.class.useClass) {
+    if (!classColorList || classColorList.length === 0) {
         for (const key in acConfig.colors[tagFileName]) {
-            classObjectList.push([key, null]);
+            classColorList.push(key);
         }
-    } else if (!classObjectList || classObjectList.length === 0) {
-        for (const key in acConfig.classList[tagFileName]) {
-            classObjectList.push([key, acConfig.classList[tagFileName][key]]);
-        }
+    }
+
+    if (acConfig.class.useClass && (!classObjectList || classObjectList.length === 0)) {
     }
     // Load main tags and translations
     if (!allTags || allTags.length === 0) {
